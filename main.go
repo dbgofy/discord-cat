@@ -21,6 +21,8 @@ func main() {
 	// フラグの定義
 	var filePaths stringSlice
 	flag.Var(&filePaths, "f", "ファイルパスを指定")
+	username := flag.String("u", "", "ユーザー名を指定")
+	avatarURL := flag.String("a", "", "アバターURLを指定")
 	flag.Parse()
 
 	discordWebHookURL := os.Getenv("DISCORD_WEBHOOK_URL")
@@ -61,6 +63,18 @@ func main() {
 
 		if len(contents) > i {
 			if err := writer.WriteField("content", contents[i]); err != nil {
+				panic(err)
+			}
+		}
+
+		if username != nil && *username != "" {
+			if err := writer.WriteField("username", *username); err != nil {
+				panic(err)
+			}
+		}
+
+		if avatarURL != nil && *avatarURL != "" {
+			if err := writer.WriteField("avatar_url", *avatarURL); err != nil {
 				panic(err)
 			}
 		}
