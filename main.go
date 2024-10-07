@@ -9,14 +9,19 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 )
 
-const maxContentLength = 2000
+const (
+	maxContentLength = 2000
+	maxFiles         = 10
+)
 
 func main() {
 	// フラグの定義
-	filePath := flag.String("f", "", "ファイルパスを指定")
+	var filePaths stringSlice
+	flag.Var(&filePaths, "f", "ファイルパスを指定")
 	flag.Parse()
 
 	discordWebHookURL := os.Getenv("DISCORD_WEBHOOK_URL")
@@ -29,53 +34,57 @@ func main() {
 	var req *http.Request
 
 	// -f フラグが指定されている場合はファイルをマルチパート形式で送信
-	if *filePath != "" {
-		file, err := os.Open(*filePath)
-		if err != nil {
-			panic(err)
-		}
-		defer file.Close()
+	if len(filePaths) > 0 {
+		for chunk := range slices.Chunk(filePaths, maxFiles) {
+			// マルチパートのバッファを作成
+			var requestBody bytes.Buffer
+			writer := multipart.NewWriter(&requestBody)
 
-		// マルチパートのバッファを作成
-		var requestBody bytes.Buffer
-		writer := multipart.NewWriter(&requestBody)
+			for i, filePath := range chunk {
+				file, err := os.Open(filePath)
+				if err != nil {
+					panic(err)
+				}
+				defer file.Close()
 
-		// ファイルをマルチパートとして追加
-		part, err := writer.CreateFormFile("file", *filePath)
-		if err != nil {
-			panic(err)
-		}
-		_, err = io.Copy(part, file)
-		if err != nil {
-			panic(err)
-		}
+				// ファイルをマルチパートとして追加
+				part, err := writer.CreateFormFile(fmt.Sprintf("file[%d]", i), filePath)
+				if err != nil {
+					panic(err)
+				}
+				_, err = io.Copy(part, file)
+				if err != nil {
+					panic(err)
+				}
+			}
 
-		// フォームデータの完了を知らせる
-		err = writer.Close()
-		if err != nil {
-			panic(err)
-		}
+			// フォームデータの完了を知らせる
+			err := writer.Close()
+			if err != nil {
+				panic(err)
+			}
 
-		// リクエスト作成
-		req, err = http.NewRequest("POST", discordWebHookURL, &requestBody)
-		if err != nil {
-			panic(err)
-		}
+			// リクエスト作成
+			req, err := http.NewRequest("POST", discordWebHookURL, &requestBody)
+			if err != nil {
+				panic(err)
+			}
 
-		// マルチパートの境界をContent-Typeヘッダーに設定
-		req.Header.Set("Content-Type", writer.FormDataContentType())
+			// マルチパートの境界をContent-Typeヘッダーに設定
+			req.Header.Set("Content-Type", writer.FormDataContentType())
 
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			panic(err)
-		}
-		defer resp.Body.Close()
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				panic(err)
+			}
+			defer resp.Body.Close()
 
-		ret, err := io.ReadAll(resp.Body)
-		if err != nil {
-			panic(err)
+			ret, err := io.ReadAll(resp.Body)
+			if err != nil {
+				panic(err)
+			}
+			fmt.Print(string(ret))
 		}
-		fmt.Print(string(ret))
 
 	} else {
 		var content string
@@ -150,4 +159,15 @@ func splitContentAtNewline(content string, length int) []string {
 
 	result = append(result, string(runes))
 	return result
+}
+
+type stringSlice []string
+
+func (s stringSlice) String() string {
+	return strings.Join(s, ", ")
+}
+
+func (s *stringSlice) Set(v string) error {
+	*s = append(*s, v)
+	return nil
 }
