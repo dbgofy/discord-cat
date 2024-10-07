@@ -17,6 +17,8 @@ const maxContentLength = 2000
 func main() {
 	// フラグの定義
 	filePath := flag.String("f", "", "ファイルパスを指定")
+	username := flag.String("u", "", "ユーザー名を指定")
+	avatarURL := flag.String("a", "", "アバターURLを指定")
 	flag.Parse()
 
 	discordWebHookURL := os.Getenv("DISCORD_WEBHOOK_URL")
@@ -99,7 +101,14 @@ func main() {
 		contents := splitContentAtNewline(content, maxContentLength)
 
 		for _, c := range contents {
-			jsonContent, err := json.Marshal(map[string]string{"content": c})
+			data := map[string]string{"content": c}
+			if username != nil && *username != "" {
+				data["username"] = *username
+			}
+			if avatarURL != nil && *avatarURL != "" {
+				data["avatar_url"] = *avatarURL
+			}
+			jsonContent, err := json.Marshal(data)
 			if err != nil {
 				panic(err)
 			}
