@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -30,63 +29,8 @@ func main() {
 		return
 	}
 
-	var body io.Reader
-	var req *http.Request
-
-	// -f フラグが指定されている場合はファイルをマルチパート形式で送信
-	if len(filePaths) > 0 {
-		for chunk := range slices.Chunk(filePaths, maxFiles) {
-			// マルチパートのバッファを作成
-			var requestBody bytes.Buffer
-			writer := multipart.NewWriter(&requestBody)
-
-			for i, filePath := range chunk {
-				file, err := os.Open(filePath)
-				if err != nil {
-					panic(err)
-				}
-				defer file.Close()
-
-				// ファイルをマルチパートとして追加
-				part, err := writer.CreateFormFile(fmt.Sprintf("file[%d]", i), filePath)
-				if err != nil {
-					panic(err)
-				}
-				_, err = io.Copy(part, file)
-				if err != nil {
-					panic(err)
-				}
-			}
-
-			// フォームデータの完了を知らせる
-			err := writer.Close()
-			if err != nil {
-				panic(err)
-			}
-
-			// リクエスト作成
-			req, err := http.NewRequest("POST", discordWebHookURL, &requestBody)
-			if err != nil {
-				panic(err)
-			}
-
-			// マルチパートの境界をContent-Typeヘッダーに設定
-			req.Header.Set("Content-Type", writer.FormDataContentType())
-
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				panic(err)
-			}
-			defer resp.Body.Close()
-
-			ret, err := io.ReadAll(resp.Body)
-			if err != nil {
-				panic(err)
-			}
-			fmt.Print(string(ret))
-		}
-
-	} else {
+	var contents []string
+	{
 		var content string
 
 		// 引数が指定されている場合はその内容を使用
@@ -105,34 +49,68 @@ func main() {
 		content = strings.TrimSpace(content)
 
 		// 2000文字を超える場合は分割して送信
-		contents := splitContentAtNewline(content, maxContentLength)
+		contents = splitContentAtNewline(content, maxContentLength)
+	}
 
-		for _, c := range contents {
-			jsonContent, err := json.Marshal(map[string]string{"content": c})
-			if err != nil {
+	filesChunk := slices.Collect(slices.Chunk(filePaths, maxFiles))
+
+	for i := range max(len(contents), len(filesChunk)) {
+		// マルチパートのバッファを作成
+		var requestBody bytes.Buffer
+		writer := multipart.NewWriter(&requestBody)
+
+		if len(contents) > i {
+			if err := writer.WriteField("content", contents[i]); err != nil {
 				panic(err)
 			}
-
-			body = bytes.NewReader(jsonContent)
-			req, err = http.NewRequest("POST", discordWebHookURL, body)
-			if err != nil {
-				panic(err)
-			}
-
-			req.Header.Set("Content-Type", "application/json")
-
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				panic(err)
-			}
-			defer resp.Body.Close()
-
-			ret, err := io.ReadAll(resp.Body)
-			if err != nil {
-				panic(err)
-			}
-			fmt.Print(string(ret))
 		}
+
+		if len(filesChunk) > i {
+			for i, filePath := range filesChunk[i] {
+				file, err := os.Open(filePath)
+				if err != nil {
+					panic(err)
+				}
+				defer file.Close()
+
+				// ファイルをマルチパートとして追加
+				part, err := writer.CreateFormFile(fmt.Sprintf("file[%d]", i), filePath)
+				if err != nil {
+					panic(err)
+				}
+				_, err = io.Copy(part, file)
+				if err != nil {
+					panic(err)
+				}
+			}
+		}
+
+		// フォームデータの完了を知らせる
+		err := writer.Close()
+		if err != nil {
+			panic(err)
+		}
+
+		// リクエスト作成
+		req, err := http.NewRequest("POST", discordWebHookURL, &requestBody)
+		if err != nil {
+			panic(err)
+		}
+
+		// マルチパートの境界をContent-Typeヘッダーに設定
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+
+		ret, err := io.ReadAll(resp.Body)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Print(string(ret))
 	}
 }
 
